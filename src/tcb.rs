@@ -29,7 +29,7 @@ use super::structures::lookupSlot_raw_ret_t;
 use super::thread_state::*;
 
 #[repr(C)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 /// Structure for the TCB
 pub struct tcb_t {
     /// The architecture registers of the TCB
@@ -310,27 +310,22 @@ impl tcb_t {
         #[cfg(target_arch = "aarch64")]
         {
             if !thread_root.is_valid_native_root() {
-                unsafe {
+                setCurrentUserVSpaceRoot(ttbr_new(
+                    0,
+                    kpptr_to_paddr(get_arm_global_user_vspace_base()),
+                ));
+                return Ok(());
+            }
+            let vspace_root = thread_root.get_pgd_base_ptr();
+            let asid = thread_root.get_pgd_mapped_asid();
+            let find_ret = find_vspace_for_asid(asid);
+
+            if let Some(root) = find_ret.vspace_root {
+                if find_ret.status != exception_t::EXCEPTION_NONE || root as usize != vspace_root {
                     setCurrentUserVSpaceRoot(ttbr_new(
                         0,
                         kpptr_to_paddr(get_arm_global_user_vspace_base()),
                     ));
-                }
-                return Ok(());
-            }
-
-            let vspace_root = thread_root.get_pgd_base_ptr();
-            let asid = thread_root.get_pgd_mapped_asid();
-            let find_ret = find_vspace_for_asid(asid);
-            if let Some(root) = find_ret.vspace_root {
-                if find_ret.status != exception_t::EXCEPTION_NONE || root as usize != vspace_root {
-                    log::debug!("root :{:#x} vspace_root :{:#x}", root as usize, vspace_root);
-                    unsafe {
-                        setCurrentUserVSpaceRoot(ttbr_new(
-                            0,
-                            kpptr_to_paddr(get_arm_global_user_vspace_base()),
-                        ));
-                    }
                     return Ok(());
                 }
             }
@@ -773,6 +768,13 @@ impl tcb_t {
                 panic!("invalid fault")
             }
         }
+    }
+
+    /// Set the thread state
+    #[inline]
+    pub fn set_state(&mut self, state: ThreadState) {
+        self.tcbState.set_ts_type(state as usize);
+        schedule_tcb(self);
     }
 }
 

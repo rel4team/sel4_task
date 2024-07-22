@@ -14,6 +14,7 @@ pub enum ThreadState {
     ThreadStateExited = 8,
 }
 
+#[cfg(target_arch = "riscv64")]
 plus_define_bitfield! {
     thread_state_t, 3, 0, 0, 0 => {
         state_new, 0 => {
@@ -23,6 +24,22 @@ plus_define_bitfield! {
             blocking_ipc_is_call, get_blocking_ipc_is_call, set_blocking_ipc_is_call, 1, 1, 1, 0, false,
             tcb_queued, get_tcb_queued, set_tcb_queued, 1, 0, 1, 0, false,
             blocking_object, get_blocking_object, set_blocking_object, 0, 4, 35, 4, true,
+            ts_type, get_ts_type, set_ts_type, 0, 0, 4, 0, false
+        }
+    }
+}
+
+// FIXED: BF_CANONICAL_RANGE = 48
+#[cfg(target_arch = "aarch64")]
+plus_define_bitfield! {
+    thread_state_t, 3, 0, 0, 0 => {
+        state_new, 0 => {
+            blocking_ipc_badge, get_blocking_ipc_badge, set_blocking_ipc_badge, 2, 0, 64, 0, false,
+            blocking_ipc_can_grant, get_blocking_ipc_can_grant, set_blocking_ipc_can_grant, 1, 3, 1, 0, false,
+            blocking_ipc_can_grant_relpy, get_blocking_ipc_can_grant_reply, set_blocking_ipc_can_grant_reply, 1, 2, 1, 0, false,
+            blocking_ipc_is_call, get_blocking_ipc_is_call, set_blocking_ipc_is_call, 1, 1, 1, 0, false,
+            tcb_queued, get_tcb_queued, set_tcb_queued, 1, 0, 1, 0, false,
+            blocking_object, get_blocking_object, set_blocking_object, 0, 4, 44, 4, true,
             ts_type, get_ts_type, set_ts_type, 0, 0, 4, 0, false
         }
     }

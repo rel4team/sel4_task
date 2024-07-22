@@ -546,17 +546,14 @@ pub fn activateThread() {
     }
 }
 
-// #[no_mangle]
-// pub static mut kernel_stack_alloc: [[u8; BIT!(CONFIG_KERNEL_STACK_BITS)]; CONFIG_MAX_NUM_NODES] =
-//     [[0; BIT!(CONFIG_KERNEL_STACK_BITS)]; CONFIG_MAX_NUM_NODES];
-
 #[cfg(not(feature = "ENABLE_SMP"))]
 /// Create the idle thread.
 pub fn create_idle_thread() {
     use crate::deps::ksIdleThreadTCB;
 
     unsafe {
-        let pptr = ksIdleThreadTCB as usize as *mut usize;
+        let pptr = &ksIdleThreadTCB.data[0][0] as *const u8 as *mut usize;
+        // let pptr = ksIdleThreadTCB as usize as *mut usize;
         ksIdleThread = pptr.add(TCB_OFFSET) as usize;
         // let tcb = convert_to_mut_type_ref::<tcb_t>(ksIdleThread as usize);
         let tcb = get_idle_thread();
@@ -572,7 +569,9 @@ pub fn create_idle_thread() {
     use log::debug;
     unsafe {
         for i in 0..CONFIG_MAX_NUM_NODES {
-            let pptr = (ksIdleThreadTCB as usize + i * BIT!(seL4_TCBBits)) as *mut usize;
+            let pptr = (unsafe { &ksIdleThreadTCB.data[0][0] as *const u8 } as usize
+                + i * BIT!(seL4_TCBBits)) as *mut usize;
+            // let pptr = (ksIdleThreadTCB as usize + i * BIT!(seL4_TCBBits)) as *mut usize;
             ksSMP[i].ksIdleThread = pptr.add(TCB_OFFSET) as usize;
             debug!("ksIdleThread: {:#x}", ksSMP[i].ksIdleThread);
             let tcb = convert_to_mut_type_ref::<tcb_t>(ksSMP[i].ksIdleThread);
@@ -581,7 +580,8 @@ pub fn create_idle_thread() {
                 .set_register(SSTATUS, SSTATUS_SPP | SSTATUS_SPIE);
             tcb.tcbArch.set_register(
                 sp,
-                kernel_stack_alloc as usize + (i + 1) * BIT!(CONFIG_KERNEL_STACK_BITS),
+                unsafe { &kernel_stack_alloc.data[0][0] as *const u8 } as usize
+                    + (i + 1) * BIT!(CONFIG_KERNEL_STACK_BITS),
             );
             set_thread_state(tcb, ThreadState::ThreadStateIdleThreadState);
             tcb.tcbAffinity = i;

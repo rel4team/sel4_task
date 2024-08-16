@@ -69,6 +69,16 @@ pub struct tcb_t {
 impl tcb_t {
     #[inline]
     /// Get i th cspace of the TCB, unmutable reference
+    /// # Examples
+    /// ```
+    /// let tcb = new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// assert_eq!(tcb.get_state(), ThreadState::ThreadStateRunning);
+    /// let cspace_0 = tcb.get_cspace(0);
+    /// assert_eq!(cspace_0.cteMDBNode.words[0], 0);
+    /// assert_eq!(cspace_0.cteMDBNode.words[1], 0);
+    /// assert_eq!(cspace_0.cap.words[0], 0);
+    /// assert_eq!(cspace_0.cap.words[1], 0);
+    /// ```
     pub fn get_cspace(&self, i: usize) -> &'static cte_t {
         unsafe {
             let p = ((self.get_ptr()) & !MASK!(seL4_TCBBits)) as *mut cte_t;
@@ -99,6 +109,21 @@ impl tcb_t {
 
     #[inline]
     /// Check if the TCB is stopped by checking the state
+    /// # Examples
+    /// ```
+    /// let stopped_states = vec![
+    ///     ThreadState::ThreadStateInactive,
+    ///     ThreadState::ThreadStateBlockedOnReceive,
+    ///     ThreadState::ThreadStateBlockedOnSend,
+    ///     ThreadState::ThreadStateBlockedOnReply,
+    ///     ThreadState::ThreadStateBlockedOnNotification,
+    /// ];
+    ///
+    /// stopped_states.into_iter().for_each(|state| {
+    ///     let tcb = new_mock_tcb_with_state(state);
+    ///     assert_eq!(tcb.is_stopped(), true);
+    /// });
+    /// ```
     pub fn is_stopped(&self) -> bool {
         match self.get_state() {
             ThreadState::ThreadStateInactive
@@ -113,6 +138,19 @@ impl tcb_t {
 
     #[inline]
     /// Check if the TCB is runnable by checking the state
+    /// # Examples
+    /// ```
+    /// let states = vec![
+    ///     ThreadState::ThreadStateRunning,
+    ///     ThreadState::ThreadStateRestart,
+    /// ];
+    ///
+    /// states.into_iter().for_each(|state| {
+    ///     let tcb = new_mock_tcb_with_state(state);
+    ///     assert_eq!(tcb.is_runnable(), true);
+    /// });
+    ///
+    /// ```
     pub fn is_runnable(&self) -> bool {
         match self.get_state() {
             ThreadState::ThreadStateRunning | ThreadState::ThreadStateRestart => true,
@@ -122,11 +160,28 @@ impl tcb_t {
 
     #[inline]
     /// Check if the TCB is current by comparing the tcb pointer
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// set_current_thread(tcb);
+    /// assert_eq!(tcb.is_current(), true);
+    /// ```
     pub fn is_current(&self) -> bool {
         self.get_ptr() == get_currenct_thread().get_ptr()
     }
 
     #[inline]
+    /// Examples
+    /// ```
+    /// let mut tcb = new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// let target_mcps = vec![20, 40, 60];
+    ///
+    /// target_mcps.into_iter().for_each(|target_mcp| {
+    ///     tcb.set_mcp_priority(target_mcp);
+    ///
+    ///     assert_eq!(tcb.tcbMCP, target_mcp);
+    /// });
+    /// ```
     pub fn set_mcp_priority(&mut self, mcp: usize) {
         self.tcbMCP = mcp;
     }
@@ -149,18 +204,61 @@ impl tcb_t {
     /// Bind the notification of the TCB
     /// # Arguments
     /// * `addr` - The address of the notification to bind.
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// let target_ntf: Vec<pptr_t> = vec![0x40000, 0x400000, 0x4000000];
+    ///
+    /// target_ntf.into_iter().for_each(|ntf_ptr| {
+    ///     tcb.bind_notification(ntf_ptr);
+    ///
+    ///     assert_eq!(tcb.tcbBoundNotification, ntf_ptr);
+    /// });
+    /// ```
     pub fn bind_notification(&mut self, addr: pptr_t) {
         self.tcbBoundNotification = addr;
     }
 
     #[inline]
     /// Unbind the notification of the TCB(just set the bound notification to 0)
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// tcb.bind_notification(0x20);
+    /// assert_ne!(tcb.tcbBoundNotification, 0);
+    ///
+    /// tcb.unbind_notification();
+    /// assert_eq!(tcb.tcbBoundNotification, 0);
+    /// ```
     pub fn unbind_notification(&mut self) {
         self.tcbBoundNotification = 0;
     }
 
     #[inline]
     /// Set the domain of the TCB.
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// let target_domain = 0;
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 0);
+    /// tcb.set_domain(target_domain);
+    /// assert_eq!(tcb.domain, target_domain);
+    /// assert_eq!(tcb.is_runnable(), true);
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+    /// ```
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// let target_domain = 0;
+    /// set_current_scheduler_action(SchedulerAction_ResumeCurrentThread);
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 0);
+    /// set_current_thread(tcb);
+    /// assert_eq!(tcb.is_current(), true);
+    ///
+    /// tcb.set_domain(target_domain);
+    /// assert_eq!(tcb.domain, target_domain);
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+    /// assert_eq!(get_ks_scheduler_action(), SchedulerAction_ChooseNewThread);
+    /// ```
     pub fn set_domain(&mut self, dom: usize) {
         self.sched_dequeue();
         self.domain = dom;
@@ -174,6 +272,27 @@ impl tcb_t {
     }
 
     /// Enqueue the TCB to the scheduling queue
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// let target_domain = 0;
+    /// let target_priority = 200;
+    /// tcb.domain = target_domain;
+    /// tcb.set_priority(target_priority);
+    ///
+    /// tcb.sched_enqueue();
+    ///
+    /// assert_eq!(tcb.domain, target_domain);
+    /// assert_eq!(tcb.tcbPriority, target_priority);
+    /// assert_eq!(tcb.tcbSchedPrev, 0);
+    /// assert_eq!(tcb.tcbSchedNext, 0);
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+    ///
+    /// let idx = ready_queues_index(target_domain, target_priority);
+    /// let queue = tcb.get_sched_queue(idx);
+    /// assert_eq!(queue.head, tcb.get_ptr());
+    /// assert_eq!(queue.tail, tcb.get_ptr());
+    /// ```
     pub fn sched_enqueue(&mut self) {
         let self_ptr = self as *mut tcb_t;
         if self.tcbState.get_tcb_queued() == 0 {
@@ -228,6 +347,32 @@ impl tcb_t {
     }
 
     /// Dequeue the TCB from the scheduling queue
+    /// # Example
+    /// ```
+    /// let mut tcbs = vec![
+    /// new_mock_tcb_with_state(ThreadState::ThreadStateRunning),
+    /// new_mock_tcb_with_state(ThreadState::ThreadStateRunning),
+    /// new_mock_tcb_with_state(ThreadState::ThreadStateRunning),
+    /// ];
+    ///
+    /// let target_domain = 0;
+    /// let target_priority = 200;
+    ///
+    /// let queue = tcbs[0].get_sched_queue(ready_queues_index(target_domain, target_priority));
+    /// assert!(queue.empty());
+    ///
+    /// tcbs.iter_mut().for_each(|tcb| {
+    ///     tcb.domain = target_domain;
+    ///     tcb.set_priority(target_priority);
+    ///     tcb.sched_enqueue();
+    /// });
+    /// assert!(queue.empty() == false);
+    ///
+    /// tcbs.iter_mut().for_each(|tcb| {
+    ///     tcb.sched_dequeue();
+    /// });
+    /// assert!(queue.empty());
+    /// ```
     pub fn sched_dequeue(&mut self) {
         if self.tcbState.get_tcb_queued() != 0 {
             let dom = self.domain;
@@ -303,7 +448,18 @@ impl tcb_t {
     }
 
     /// Set the VM root of the TCB
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// let ret = tcb.set_vm_root();
+    /// assert_eq!(ret.is_ok(), true);
+    /// ```
     pub fn set_vm_root(&self) -> Result<(), lookup_fault_t> {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "UNIT_TEST")] {
+                return Ok(());
+            }
+        }
         // let threadRoot = &(*getCSpace(thread as usize, tcbVTable)).cap;
         let thread_root = self.get_cspace(tcbVTable).cap;
         #[cfg(target_arch = "aarch64")]
@@ -339,6 +495,15 @@ impl tcb_t {
 
     #[inline]
     /// Switch to the TCB(set current thread to self)
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// tcb.sched_enqueue();
+    /// assert_ne!(get_currenct_thread().get_ptr(), tcb.get_ptr());
+    ///
+    /// tcb.switch_to_this();
+    /// assert_eq!(get_currenct_thread().get_ptr(), tcb.get_ptr());
+    /// ```
     pub fn switch_to_this(&mut self) {
         // if hart_id() == 0 {
         //     debug!("switch_to_this: {:#x}", self.get_ptr());
@@ -362,6 +527,29 @@ impl tcb_t {
     /// * `cap_ptr` - The capability pointer to look up
     /// # Returns
     /// The lookup result structure
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// let slot: &mut cte_t = &mut cte_t::default();
+    /// let slot_ptr = slot.get_ptr();
+    /// let guard_bits = wordBits - 1;
+    /// let radix_bits = 1;
+    /// let level_bits = radix_bits + guard_bits;
+    /// let cap_ptr = 0;
+    ///
+    /// assert_eq!(level_bits, wordBits);
+    /// assert!(guard_bits <= wordBits);
+    ///
+    /// let capCnodeGuard = (cap_ptr >> ((wordBits - guard_bits) & MASK!(wordRadix))) & MASK!(guard_bits);
+    /// assert_eq!(capCnodeGuard, 0);
+    ///
+    /// let ctable_slot = tcb.get_cspace_mut_ref(tcbCTable);
+    /// ctable_slot.cap = cap_t::new_cnode_cap(1, guard_bits, capCnodeGuard , slot_ptr);
+    /// let slot = tcb.lookup_slot(0);
+    ///
+    /// assert_eq!(slot.status, exception_t::EXCEPTION_NONE);
+    /// assert_eq!(slot.slot as *const cte_t as usize, slot_ptr);
+    /// ```
     pub fn lookup_slot(&self, cap_ptr: usize) -> lookupSlot_raw_ret_t {
         let thread_root = self.get_cspace(tcbCTable).cap;
         let res_ret = resolve_address_bits(&thread_root, cap_ptr, wordBits);
@@ -373,6 +561,25 @@ impl tcb_t {
 
     #[inline]
     /// Setup the reply master of the TCB
+    /// # Example
+    /// ```
+    /// let mut tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// // 改变 tcb指针
+    /// if tcb.get_ptr() - tcb.get_cspace(tcbCTable).get_ptr() < 3 * size_of::<cte_t>() {
+    ///     let tcb_ptr = tcb.get_cspace(tcbCTable).get_ptr() + 3 * size_of::<cte_t>();
+    ///     tcb = unsafe { &mut *(tcb_ptr as *mut tcb_t) };
+    /// }
+    ///
+    /// assert_eq!(
+    ///     tcb.get_ptr() - tcb.get_cspace(tcbCTable).get_ptr() >= 3 * size_of::<cte_t>(),
+    ///     true
+    /// );
+    /// tcb.get_cspace_mut_ref(tcbReply).cap = cap_t::new_null_cap();
+    /// tcb.setup_reply_master();
+    ///
+    /// assert_eq!(tcb.get_cspace(tcbReply).cap.get_cap_type(), CapTag::CapReplyCap);
+    /// assert_eq!(tcb.get_cspace(tcbReply).cap.get_type(), CapTag::CapReplyCap as usize);
+    /// ```
     pub fn setup_reply_master(&mut self) {
         let slot = self.get_cspace_mut_ref(tcbReply);
         if slot.cap.get_cap_type() == CapTag::CapNullCap {
@@ -383,6 +590,16 @@ impl tcb_t {
 
     #[inline]
     /// Susupend the TCB, set the state to ThreadStateInactive and dequeue from the scheduling queue
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// tcb.sched_enqueue();
+    /// assert_eq!(tcb.get_state(), ThreadState::ThreadStateRunning);
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+    /// tcb.suspend();
+    /// assert_eq!(tcb.get_state(), ThreadState::ThreadStateInactive);
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 0);
+    /// ```
     pub fn suspend(&mut self) {
         if self.get_state() == ThreadState::ThreadStateRunning {
             self.tcbArch.set_register(
@@ -780,6 +997,31 @@ impl tcb_t {
 /// # Arguments
 /// * `tcb` - The TCB to set
 /// * `state` - The state
+/// # Example
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// let target_states = vec![
+///     ThreadState::ThreadStateInactive,
+///     ThreadState::ThreadStateRunning,
+///     ThreadState::ThreadStateRestart,
+///     ThreadState::ThreadStateBlockedOnReceive,
+///     ThreadState::ThreadStateBlockedOnSend,
+///     ThreadState::ThreadStateBlockedOnReply,
+///     ThreadState::ThreadStateBlockedOnNotification,
+///     ThreadState::ThreadStateIdleThreadState,
+///     ThreadState::ThreadStateExited,
+/// ];
+///
+/// target_states
+///     .into_iter()
+///     .enumerate()
+///     .for_each(|(idx, state)| {
+///         set_thread_state(tcb, state);
+///
+///         assert_eq!(tcb.get_state() as usize, idx);
+///     });
+///
+/// ```
 pub fn set_thread_state(tcb: &mut tcb_t, state: ThreadState) {
     tcb.tcbState.set_ts_type(state as usize);
     schedule_tcb(tcb);

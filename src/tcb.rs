@@ -614,6 +614,17 @@ impl tcb_t {
 
     #[inline]
     /// Restart the TCB, set the state to ThreadStateRestart and enqueue to the scheduling queue waiting for reschedule
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateBlockedOnSend);
+    /// assert_eq!(tcb.get_state(), ThreadState::ThreadStateBlockedOnSend);
+    /// assert!(tcb.tcbState.get_tcb_queued() == 0);
+    ///
+    /// tcb.restart();
+    ///
+    /// assert_eq!(tcb.get_state(), ThreadState::ThreadStateRestart);
+    /// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+    /// ```
     pub fn restart(&mut self) {
         if self.is_stopped() {
             self.setup_reply_master();
@@ -650,6 +661,16 @@ impl tcb_t {
 
     #[inline]
     /// Delete the caller cap of the TCB
+    /// # Example
+    /// ```
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// tcb.get_cspace_mut_ref(tcbCaller).cap = cap_t::new_reply_cap(0, 0, 0);
+    /// tcb.delete_caller_cap();
+    /// assert_eq!(
+    ///     tcb.get_cspace(tcbCaller).cap.get_cap_type(),
+    ///     CapTag::CapNullCap
+    /// );
+    /// ```
     pub fn delete_caller_cap(&mut self) {
         let caller_slot = self.get_cspace_mut_ref(tcbCaller);
         caller_slot.delete_one();
@@ -660,6 +681,43 @@ impl tcb_t {
     /// * `is_receiver` - If the TCB is receiver
     /// # Returns
     /// The IPC buffer of the TCB
+    /// # Example
+    /// ```
+    /// let page_base: [u8; BIT!(seL4_PageBits)] = [0; BIT!(seL4_PageBits)]; // page
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    /// tcb.tcbIPCBuffer = 0x20;
+    /// let buffer_cap = cap_t::new_frame_cap(
+    ///     0,
+    ///     page_base.as_ptr() as usize,
+    ///     seL4_PageBits,
+    ///     vm_rights_t::VMReadWrite as usize,
+    ///     0,
+    ///     0,
+    /// );
+    ///
+    /// let mock_buffer =
+    ///     convert_to_mut_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+    /// mock_buffer.tag = 0x888;
+    /// mock_buffer.msg = [0x200; seL4_MsgMaxLength];
+    /// mock_buffer.userData = 0x400;
+    /// mock_buffer.caps_or_badges = [0x600; seL4_MsgMaxExtraCaps];
+    /// mock_buffer.receiveCNode = 0x800;
+    /// mock_buffer.receiveIndex = 0x1000;
+    /// mock_buffer.receiveDepth = 0x2000;
+    ///
+    /// tcb.get_cspace_mut_ref(tcbBuffer).cap = buffer_cap;
+    ///
+    /// let res = tcb.lookup_ipc_buffer(false);
+    /// assert_eq!(res.is_some(), true);
+    /// let res = res.unwrap();
+    /// assert_eq!(res.tag, 0x888);
+    /// assert_eq!(res.msg, [0x200; seL4_MsgMaxLength]);
+    /// assert_eq!(res.userData, 0x400);
+    /// assert_eq!(res.caps_or_badges, [0x600; seL4_MsgMaxExtraCaps]);
+    /// assert_eq!(res.receiveCNode, 0x800);
+    /// assert_eq!(res.receiveIndex, 0x1000);
+    /// assert_eq!(res.receiveDepth, 0x2000);
+    /// ```
     pub fn lookup_ipc_buffer(&self, is_receiver: bool) -> Option<&'static seL4_IPCBuffer> {
         let w_buffer_ptr = self.tcbIPCBuffer;
         let buffer_cap = self.get_cspace(tcbBuffer).cap;
@@ -691,6 +749,69 @@ impl tcb_t {
     /// * `res` - The result array to store the extra caps
     /// # Returns
     /// The result of the lookup represented by seL4_Fault_t
+    /// # Example
+    ///
+    /// ```
+    /// let page_base: [u8; BIT!(seL4_PageBits)] = [0; BIT!(seL4_PageBits)]; // page
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    ///
+    /// // ipc buffer build
+    /// {
+    ///     tcb.tcbIPCBuffer = 0x20;
+    ///     let buffer_cap = cap_t::new_frame_cap(
+    ///         0,
+    ///         page_base.as_ptr() as usize,
+    ///         seL4_PageBits,
+    ///         vm_rights_t::VMReadWrite as usize,
+    ///         0,
+    ///         0,
+    ///     );
+    ///
+    ///     let mock_buffer =
+    ///         convert_to_mut_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+    ///     mock_buffer.tag = 0x888;
+    ///     mock_buffer.msg = [0x200; seL4_MsgMaxLength];
+    ///     mock_buffer.userData = 0x400;
+    ///     mock_buffer.caps_or_badges = [0; seL4_MsgMaxExtraCaps];
+    ///     mock_buffer.receiveCNode = 0x800;
+    ///     mock_buffer.receiveIndex = 0x1000;
+    ///     mock_buffer.receiveDepth = 0x2000;
+    ///
+    ///     tcb.get_cspace_mut_ref(tcbBuffer).cap = buffer_cap;
+    /// }
+    ///
+    /// // slot build
+    /// let slot: &mut cte_t = &mut cte_t::default();
+    /// {
+    ///     let slot_ptr = slot.get_ptr();
+    ///     let guard_bits = wordBits - 1;
+    ///     let radix_bits = 1;
+    ///     let level_bits = radix_bits + guard_bits;
+    ///     let cap_ptr = 0;
+    ///
+    ///     assert_eq!(level_bits, wordBits);
+    ///     assert!(guard_bits <= wordBits);
+    ///
+    ///     let capCnodeGuard =
+    ///         (cap_ptr >> ((wordBits - guard_bits) & MASK!(wordRadix))) & MASK!(guard_bits);
+    ///     assert_eq!(capCnodeGuard, 0);
+    ///
+    ///     let ctable_slot = tcb.get_cspace_mut_ref(tcbCTable);
+    ///     ctable_slot.cap = cap_t::new_cnode_cap(1, guard_bits, capCnodeGuard, slot_ptr);
+    /// }
+    ///
+    /// // msg info build
+    /// {
+    ///     tcb.tcbArch.set_register(ArchReg::MsgInfo, 1 << 7);
+    /// }
+    ///
+    /// let res: &mut [pptr_t; 3] = &mut [0; seL4_MsgMaxExtraCaps];
+    /// let result = tcb.lookup_extra_caps(res);
+    /// assert_eq!(result.is_ok(), true);
+    /// assert_eq!(res[0], slot.get_ptr());
+    /// assert_eq!(res[1], 0);
+    /// assert_eq!(res[2], 0);
+    /// ```
     pub fn lookup_extra_caps(
         &self,
         res: &mut [pptr_t; seL4_MsgMaxExtraCaps],
@@ -722,6 +843,70 @@ impl tcb_t {
     /// * `buf` - The IPC buffer to look up
     /// # Returns
     /// The result of the lookup represented by seL4_Fault_t
+    /// # Example
+    /// ```
+    /// let page_base: [u8; BIT!(seL4_PageBits)] = [0; BIT!(seL4_PageBits)]; // page
+    /// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    ///
+    /// // ipc buffer build
+    ///
+    /// tcb.tcbIPCBuffer = 0x20;
+    /// let buffer_cap = cap_t::new_frame_cap(
+    ///     0,
+    ///     page_base.as_ptr() as usize,
+    ///     seL4_PageBits,
+    ///     vm_rights_t::VMReadWrite as usize,
+    ///     0,
+    ///     0,
+    /// );
+    ///
+    /// let mock_buffer =
+    ///     convert_to_mut_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+    /// mock_buffer.tag = 0x888;
+    /// mock_buffer.msg = [0x200; seL4_MsgMaxLength];
+    /// mock_buffer.userData = 0x400;
+    /// mock_buffer.caps_or_badges = [0; seL4_MsgMaxExtraCaps];
+    /// mock_buffer.receiveCNode = 0x800;
+    /// mock_buffer.receiveIndex = 0x1000;
+    /// mock_buffer.receiveDepth = 0x2000;
+    /// drop(mock_buffer);
+    ///
+    /// tcb.get_cspace_mut_ref(tcbBuffer).cap = buffer_cap;
+    ///
+    /// // slot build
+    /// let slot: &mut cte_t = &mut cte_t::default();
+    /// {
+    ///     let slot_ptr = slot.get_ptr();
+    ///     let guard_bits = wordBits - 1;
+    ///     let radix_bits = 1;
+    ///     let level_bits = radix_bits + guard_bits;
+    ///     let cap_ptr = 0;
+    ///
+    ///     assert_eq!(level_bits, wordBits);
+    ///     assert!(guard_bits <= wordBits);
+    ///
+    ///     let capCnodeGuard =
+    ///         (cap_ptr >> ((wordBits - guard_bits) & MASK!(wordRadix))) & MASK!(guard_bits);
+    ///     assert_eq!(capCnodeGuard, 0);
+    ///
+    ///     let ctable_slot = tcb.get_cspace_mut_ref(tcbCTable);
+    ///     ctable_slot.cap = cap_t::new_cnode_cap(1, guard_bits, capCnodeGuard, slot_ptr);
+    /// }
+    ///
+    /// // msg info build
+    /// {
+    ///     tcb.tcbArch.set_register(ArchReg::MsgInfo, 1 << 7);
+    /// }
+    ///
+    /// let res: &mut [pptr_t; 3] = &mut [0; seL4_MsgMaxExtraCaps];
+    /// let mock_buffer = convert_to_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+    /// let result = tcb.lookup_extra_caps_with_buf(res, Some(mock_buffer));
+    /// assert_eq!(result.is_ok(), true);
+    ///
+    /// assert_eq!(res[0], slot.get_ptr());
+    /// assert_eq!(res[1], 0);
+    /// assert_eq!(res[2], 0);
+    /// ```
     pub fn lookup_extra_caps_with_buf(
         &self,
         res: &mut [pptr_t; seL4_MsgMaxExtraCaps],

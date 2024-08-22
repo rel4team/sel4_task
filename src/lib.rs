@@ -35,17 +35,21 @@ extern crate alloc;
 
 #[cfg(test)]
 mod tests {
-    use alloc::{string::String, sync::Arc, vec, vec::Vec};
-    use core::{arch::global_asm, cell::UnsafeCell, intrinsics::size_of};
+    use alloc::{sync::Arc, vec, vec::Vec};
+    use core::{arch::global_asm, intrinsics::size_of};
     use lazy_static::lazy_static;
     use riscv::register::{stvec, utvec::TrapMode};
     use sel4_common::{
-        arch::{shutdown, ArchReg, ArchTCB},
+        arch::{shutdown, vm_rights_t, ArchReg, ArchTCB},
         fault::{lookup_fault_t, seL4_Fault_t},
         println,
-        sel4_config::{tcbCTable, tcbReply, tcbVTable, wordBits, wordRadix},
-        structures::exception_t,
-        MASK,
+        sel4_config::{
+            seL4_MsgMaxExtraCaps, seL4_MsgMaxLength, seL4_PageBits, tcbBuffer, tcbCTable,
+            tcbCaller, tcbReply, wordBits, wordRadix,
+        },
+        structures::{exception_t, seL4_IPCBuffer},
+        utils::{convert_to_mut_type_ref, convert_to_type_ref},
+        BIT, MASK,
     };
     use sel4_cspace::{
         arch::{cap_t, CapTag},
@@ -433,7 +437,6 @@ mod tests {
 
         println!("Test tcb_set_vm_root_happy_case_test passed!<<<<<<<<<<<<\n");
     }
-
     #[test_case]
     pub fn tcb_switch_to_this_happy_case_test() {
         println!(">>>>>>>>>>>> Entering tcb_switch_to_this_happy_case_test...");
@@ -583,8 +586,14 @@ mod tests {
         tcb.get_cspace_mut_ref(tcbReply).cap = cap_t::new_null_cap();
         tcb.setup_reply_master();
 
-        assert_eq!(tcb.get_cspace(tcbReply).cap.get_cap_type(), CapTag::CapReplyCap);
-        assert_eq!(tcb.get_cspace(tcbReply).cap.get_type(), CapTag::CapReplyCap as usize);
+        assert_eq!(
+            tcb.get_cspace(tcbReply).cap.get_cap_type(),
+            CapTag::CapReplyCap
+        );
+        assert_eq!(
+            tcb.get_cspace(tcbReply).cap.get_type(),
+            CapTag::CapReplyCap as usize
+        );
 
         println!("Test tcb_setup_reply_master_happy_case_test passed!<<<<<<<<<<<<\n");
     }
@@ -604,6 +613,276 @@ mod tests {
         println!("Test tcb_suspend_happy_case_test passed!<<<<<<<<<<<<\n");
     }
 
+    #[test_case]
+    pub fn tcb_restart_happy_case_test() {
+        println!(">>>>>>>>>>>> Entering tcb_restart_happy_case_test...");
+
+        let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateBlockedOnSend);
+        assert_eq!(tcb.get_state(), ThreadState::ThreadStateBlockedOnSend);
+        assert!(tcb.tcbState.get_tcb_queued() == 0);
+
+        tcb.restart();
+
+        assert_eq!(tcb.get_state(), ThreadState::ThreadStateRestart);
+        assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+
+        println!("Test tcb_restart_happy_case_test passed!<<<<<<<<<<<<\n");
+    }
+
+    // #[test_case]
+    // pub fn tcb_setup_caller_cap_happy_case_test() {
+    //     println!(">>>>>>>>>>>> Entering tcb_setup_caller_cap_happy_case_test...");
+
+    //     let mut tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    //     tcb.get_cspace_mut_ref(tcbCaller).cap = cap_t::new_null_cap();
+    //     let _temps = [
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //     ];
+
+    //     // 改变 tcb指针
+    //     if tcb.get_ptr() - tcb.get_cspace(tcbCTable).get_ptr() < 4 * size_of::<cte_t>() {
+    //         let tcb_ptr = tcb.get_cspace(tcbCTable).get_ptr() + 4 * size_of::<cte_t>();
+    //         tcb = unsafe { &mut *(tcb_ptr as *mut tcb_t) };
+    //     }
+
+    //     tcb.get_cspace_mut_ref(tcbCaller).cap = cap_t::new_null_cap();
+
+    //     let mut sender = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+    //     let _temps2 = [
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //         "hello, world",
+    //     ];
+    //     // 改变 tcb指针
+    //     if sender.get_ptr() - sender.get_cspace(tcbCTable).get_ptr() < 4 * size_of::<cte_t>() {
+    //         let tcb_ptr = sender.get_cspace(tcbCTable).get_ptr() + 4 * size_of::<cte_t>();
+    //         sender = unsafe { &mut *(tcb_ptr as *mut tcb_t) };
+    //     }
+
+    //     sender.get_cspace_mut_ref(tcbReply).cap = cap_t::new_null_cap();
+    //     assert_eq!(
+    //         sender.get_cspace(tcbReply).cap.get_cap_type(),
+    //         CapTag::CapNullCap
+    //     );
+    //     sender.setup_reply_master();
+    //     assert_eq!(
+    //         sender.get_cspace(tcbReply).cap.get_cap_type(),
+    //         CapTag::CapReplyCap
+    //     );
+    //     tcb.setup_caller_cap(sender, true);
+
+    //     assert_ne!(
+    //         tcb.get_cspace(tcbCaller).cap.get_cap_type(),
+    //         CapTag::CapNullCap
+    //     );
+
+    //     println!("Test tcb_setup_caller_cap_happy_case_test passed!<<<<<<<<<<<<\n");
+    // }
+
+    #[test_case]
+    fn tcb_delete_caller_cap_happy_case_test() {
+        println!(">>>>>>>>>>>> Entering tcb_delete_caller_cap_happy_case_test...");
+
+        let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+        tcb.get_cspace_mut_ref(tcbCaller).cap = cap_t::new_reply_cap(0, 0, 0);
+        tcb.delete_caller_cap();
+        assert_eq!(
+            tcb.get_cspace(tcbCaller).cap.get_cap_type(),
+            CapTag::CapNullCap
+        );
+
+        println!("Test tcb_delete_caller_cap_happy_case_test passed!<<<<<<<<<<<<\n");
+    }
+
+    #[test_case]
+    pub fn tcb_lookup_ipc_buffer_happy_case_test() {
+        println!(">>>>>>>>>>>> Entering tcb_lookup_ipc_buffer_happy_case_test...");
+
+        let page_base: [u8; BIT!(seL4_PageBits)] = [0; BIT!(seL4_PageBits)]; // page
+        let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+        tcb.tcbIPCBuffer = 0x20;
+        let buffer_cap = cap_t::new_frame_cap(
+            0,
+            page_base.as_ptr() as usize,
+            seL4_PageBits,
+            vm_rights_t::VMReadWrite as usize,
+            0,
+            0,
+        );
+
+        let mock_buffer =
+            convert_to_mut_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+        mock_buffer.tag = 0x888;
+        mock_buffer.msg = [0x200; seL4_MsgMaxLength];
+        mock_buffer.userData = 0x400;
+        mock_buffer.caps_or_badges = [0x600; seL4_MsgMaxExtraCaps];
+        mock_buffer.receiveCNode = 0x800;
+        mock_buffer.receiveIndex = 0x1000;
+        mock_buffer.receiveDepth = 0x2000;
+
+        tcb.get_cspace_mut_ref(tcbBuffer).cap = buffer_cap;
+
+        let res = tcb.lookup_ipc_buffer(false);
+        assert_eq!(res.is_some(), true);
+        let res = res.unwrap();
+        assert_eq!(res.tag, 0x888);
+        assert_eq!(res.msg, [0x200; seL4_MsgMaxLength]);
+        assert_eq!(res.userData, 0x400);
+        assert_eq!(res.caps_or_badges, [0x600; seL4_MsgMaxExtraCaps]);
+        assert_eq!(res.receiveCNode, 0x800);
+        assert_eq!(res.receiveIndex, 0x1000);
+        assert_eq!(res.receiveDepth, 0x2000);
+
+        println!("Test tcb_lookup_ipc_buffer_happy_case_test passed!<<<<<<<<<<<<\n");
+    }
+
+    #[test_case]
+    pub fn tcb_lookup_extra_caps_happy_case_test() {
+        println!(">>>>>>>>>>>> Entering tcb_lookup_extra_caps_happy_case_test...");
+
+        let page_base: [u8; BIT!(seL4_PageBits)] = [0; BIT!(seL4_PageBits)]; // page
+        let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+
+        // ipc buffer build
+        {
+            tcb.tcbIPCBuffer = 0x20;
+            let buffer_cap = cap_t::new_frame_cap(
+                0,
+                page_base.as_ptr() as usize,
+                seL4_PageBits,
+                vm_rights_t::VMReadWrite as usize,
+                0,
+                0,
+            );
+
+            let mock_buffer =
+                convert_to_mut_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+            mock_buffer.tag = 0x888;
+            mock_buffer.msg = [0x200; seL4_MsgMaxLength];
+            mock_buffer.userData = 0x400;
+            mock_buffer.caps_or_badges = [0; seL4_MsgMaxExtraCaps];
+            mock_buffer.receiveCNode = 0x800;
+            mock_buffer.receiveIndex = 0x1000;
+            mock_buffer.receiveDepth = 0x2000;
+
+            tcb.get_cspace_mut_ref(tcbBuffer).cap = buffer_cap;
+        }
+
+        // slot build
+        let slot: &mut cte_t = &mut cte_t::default();
+        {
+            let slot_ptr = slot.get_ptr();
+            let guard_bits = wordBits - 1;
+            let radix_bits = 1;
+            let level_bits = radix_bits + guard_bits;
+            let cap_ptr = 0;
+
+            assert_eq!(level_bits, wordBits);
+            assert!(guard_bits <= wordBits);
+
+            let capCnodeGuard =
+                (cap_ptr >> ((wordBits - guard_bits) & MASK!(wordRadix))) & MASK!(guard_bits);
+            assert_eq!(capCnodeGuard, 0);
+
+            let ctable_slot = tcb.get_cspace_mut_ref(tcbCTable);
+            ctable_slot.cap = cap_t::new_cnode_cap(1, guard_bits, capCnodeGuard, slot_ptr);
+        }
+
+        // msg info build
+        {
+            tcb.tcbArch.set_register(ArchReg::MsgInfo, 1 << 7);
+        }
+
+        let res: &mut [pptr_t; 3] = &mut [0; seL4_MsgMaxExtraCaps];
+        let result = tcb.lookup_extra_caps(res);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(res[0], slot.get_ptr());
+        assert_eq!(res[1], 0);
+        assert_eq!(res[2], 0);
+
+        println!("Test tcb_lookup_extra_caps_happy_case_test passed!<<<<<<<<<<<<\n");
+    }
+
+    #[test_case]
+    pub fn tcb_lookup_extra_caps_with_buf_happy_case_test() {
+        println!(">>>>>>>>>>>> Entering tcb_lookup_extra_caps_with_buf_happy_case_test...");
+
+        let page_base: [u8; BIT!(seL4_PageBits)] = [0; BIT!(seL4_PageBits)]; // page
+        let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+
+        // ipc buffer build
+
+        tcb.tcbIPCBuffer = 0x20;
+        let buffer_cap = cap_t::new_frame_cap(
+            0,
+            page_base.as_ptr() as usize,
+            seL4_PageBits,
+            vm_rights_t::VMReadWrite as usize,
+            0,
+            0,
+        );
+
+        let mock_buffer =
+            convert_to_mut_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+        mock_buffer.tag = 0x888;
+        mock_buffer.msg = [0x200; seL4_MsgMaxLength];
+        mock_buffer.userData = 0x400;
+        mock_buffer.caps_or_badges = [0; seL4_MsgMaxExtraCaps];
+        mock_buffer.receiveCNode = 0x800;
+        mock_buffer.receiveIndex = 0x1000;
+        mock_buffer.receiveDepth = 0x2000;
+
+        tcb.get_cspace_mut_ref(tcbBuffer).cap = buffer_cap;
+
+        // slot build
+        let slot: &mut cte_t = &mut cte_t::default();
+        {
+            let slot_ptr = slot.get_ptr();
+            let guard_bits = wordBits - 1;
+            let radix_bits = 1;
+            let level_bits = radix_bits + guard_bits;
+            let cap_ptr = 0;
+
+            assert_eq!(level_bits, wordBits);
+            assert!(guard_bits <= wordBits);
+
+            let capCnodeGuard =
+                (cap_ptr >> ((wordBits - guard_bits) & MASK!(wordRadix))) & MASK!(guard_bits);
+            assert_eq!(capCnodeGuard, 0);
+
+            let ctable_slot = tcb.get_cspace_mut_ref(tcbCTable);
+            ctable_slot.cap = cap_t::new_cnode_cap(1, guard_bits, capCnodeGuard, slot_ptr);
+        }
+
+        // msg info build
+        {
+            tcb.tcbArch.set_register(ArchReg::MsgInfo, 1 << 7);
+        }
+
+        let res: &mut [pptr_t; 3] = &mut [0; seL4_MsgMaxExtraCaps];
+        let mock_buffer = convert_to_type_ref::<seL4_IPCBuffer>(page_base.as_ptr() as usize + 0x20);
+        let result = tcb.lookup_extra_caps_with_buf(res, Some(mock_buffer));
+        assert_eq!(result.is_ok(), true);
+
+        assert_eq!(res[0], slot.get_ptr());
+        assert_eq!(res[1], 0);
+        assert_eq!(res[2], 0);
+
+        println!("Test tcb_lookup_extra_caps_with_buf_happy_case_test passed!<<<<<<<<<<<<\n");
+    }
+
     pub fn test_runner(tests: &[&dyn Fn()]) {
         println!("Running {} tests\n", tests.len());
         for test in tests {
@@ -618,6 +897,11 @@ mod tests {
         println!("{}", info);
         shutdown()
     }
+
+    #[no_mangle]
+    pub fn finaliseCap() {}
+    #[no_mangle]
+    pub fn post_cap_deletion() {}
 
     #[alloc_error_handler]
     pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {

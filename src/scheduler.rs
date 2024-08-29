@@ -118,6 +118,17 @@ type prio_t = usize;
 
 #[inline]
 /// Get the idle thread, and returns a mutable tcb reference to the idle thread.
+/// # Example
+/// ```
+/// let mock_idle_thread = new_mock_tcb_with_state(ThreadState::ThreadStateIdleThreadState);
+/// unsafe { ksIdleThread = mock_idle_thread.get_ptr() as usize }
+/// let idle_thread = get_idle_thread();
+/// assert_eq!(
+///     idle_thread.get_state(),
+///     ThreadState::ThreadStateIdleThreadState
+/// );
+/// assert_eq!(idle_thread.get_ptr() as usize, unsafe { ksIdleThread });
+/// ```
 pub fn get_idle_thread() -> &'static mut tcb_t {
     unsafe {
         #[cfg(feature = "ENABLE_SMP")]
@@ -133,6 +144,12 @@ pub fn get_idle_thread() -> &'static mut tcb_t {
 
 #[inline]
 /// Get the action to be taken by ks scheduler.
+/// # Example
+/// ```
+/// let action = SchedulerAction_ChooseNewThread;
+/// set_current_scheduler_action(action);
+/// assert_eq!(get_ks_scheduler_action(), action);
+/// ```
 pub fn get_ks_scheduler_action() -> usize {
     unsafe {
         #[cfg(feature = "ENABLE_SMP")]
@@ -148,6 +165,12 @@ pub fn get_ks_scheduler_action() -> usize {
 
 #[inline]
 /// Set the action to be taken by ks scheduler.
+/// # Example
+/// ```
+/// let action = SchedulerAction_ChooseNewThread;
+/// set_current_scheduler_action(action);
+/// assert_eq!(get_ks_scheduler_action(), action);
+/// ```
 pub fn set_ks_scheduler_action(action: usize) {
     // if hart_id() == 0 {
     //     debug!("set_ks_scheduler_action: {}", action);
@@ -167,6 +190,12 @@ pub fn set_ks_scheduler_action(action: usize) {
 #[inline]
 /// Get the current thread, and returns a mutable tcb reference to the current thread.
 /// FIXME: fix the name of this function, get_current_thread
+/// # Example
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// set_current_thread(tcb);
+/// assert_eq!(get_currenct_thread().get_ptr(), tcb.get_ptr());
+/// ```
 pub fn get_currenct_thread() -> &'static mut tcb_t {
     unsafe {
         #[cfg(feature = "ENABLE_SMP")]
@@ -182,6 +211,12 @@ pub fn get_currenct_thread() -> &'static mut tcb_t {
 
 #[inline]
 /// Get the current thread, and returns a mutable tcb reference to the current thread unsafely.
+/// # Example
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// set_current_thread(tcb);
+/// assert_eq!(get_currenct_thread_unsafe().get_ptr(), tcb.get_ptr());
+/// ```
 pub fn get_currenct_thread_unsafe() -> &'static mut tcb_t {
     unsafe {
         #[cfg(feature = "ENABLE_SMP")]
@@ -197,6 +232,12 @@ pub fn get_currenct_thread_unsafe() -> &'static mut tcb_t {
 
 #[inline]
 /// Set the action to be taken by current scheduler.
+/// # Example
+/// ```
+/// let action = SchedulerAction_ChooseNewThread;
+/// set_current_scheduler_action(action);
+/// assert_eq!(get_ks_scheduler_action(), action);
+/// ```
 pub fn set_current_scheduler_action(action: usize) {
     unsafe {
         #[cfg(feature = "ENABLE_SMP")]
@@ -212,6 +253,12 @@ pub fn set_current_scheduler_action(action: usize) {
 
 #[inline]
 /// Set the current thread.
+/// # Example
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// set_current_thread(tcb);
+/// assert_eq!(get_currenct_thread().get_ptr(), tcb.get_ptr());
+/// ```
 pub fn set_current_thread(thread: &tcb_t) {
     unsafe {
         #[cfg(feature = "ENABLE_SMP")]
@@ -227,12 +274,25 @@ pub fn set_current_thread(thread: &tcb_t) {
 
 #[inline]
 /// Get the current domain.
+/// # Example
+/// ```
+/// let domain = 0x20;
+/// unsafe { ksCurDomain = domain }
+/// assert_eq!(get_current_domain(), domain);
+/// ```
 pub fn get_current_domain() -> usize {
     unsafe { ksCurDomain }
 }
 
 #[inline]
 /// Get the index of the ready queue for the given domain and priority level.
+/// # Example
+/// ```
+/// let domain = 0x20;
+/// let priority = 0x40;
+/// let idx = ready_queues_index(domain, priority);
+/// assert_eq!(idx, domain * CONFIG_NUM_PRIORITIES + priority);
+/// ```
 pub fn ready_queues_index(dom: usize, prio: usize) -> usize {
     dom * CONFIG_NUM_PRIORITIES + prio
 }
@@ -416,6 +476,33 @@ pub fn rescheduleRequired() {
 
 #[no_mangle]
 /// Schedule threads.
+/// # Examples
+/// ```
+/// set_current_scheduler_action(SchedulerAction_ChooseNewThread);
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// set_current_thread(tcb);
+/// unsafe { ksDomainTime = 1 }
+/// schedule();
+/// assert_eq!(
+///     get_ks_scheduler_action(),
+///     SchedulerAction_ResumeCurrentThread
+/// );
+///
+/// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+/// ```
+///
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// tcb.tcbPriority = 3;
+/// let c_tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// c_tcb.tcbPriority = 3;
+/// set_current_thread(c_tcb); // current tcb
+/// set_current_scheduler_action(tcb.get_ptr()); // sched_tcb
+///
+/// unsafe { ksDomainTime = 1 }
+/// schedule();
+/// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+/// ```
 pub fn schedule() {
     if get_ks_scheduler_action() != SchedulerAction_ResumeCurrentThread {
         let was_runnable: bool;
@@ -484,6 +571,24 @@ pub fn possible_switch_to(target: &mut tcb_t) {
 #[cfg(not(feature = "ENABLE_SMP"))]
 #[inline]
 /// Schedule the given tcb when current tcb is not in the same domain or current action is not to resume the current thread.
+/// # Examples
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// let target_domain = 0;
+/// unsafe { ksCurDomain = target_domain};
+/// let target_priority = 202;
+/// tcb.domain = target_domain;
+/// tcb.set_priority(target_priority);
+///
+/// set_current_scheduler_action(SchedulerAction_ChooseNewThread);
+/// possible_switch_to(tcb);
+/// assert_eq!(tcb.domain, target_domain);
+/// assert_eq!(tcb.tcbPriority, target_priority);
+/// assert_eq!(tcb.tcbSchedPrev, 0);
+/// assert_eq!(tcb.tcbSchedNext, 0);
+/// assert_eq!(tcb.tcbState.get_tcb_queued(), 1);
+/// assert_eq!(get_ks_scheduler_action(), SchedulerAction_ChooseNewThread);
+/// ```
 pub fn possible_switch_to(target: &mut tcb_t) {
     if unsafe { ksCurDomain != target.domain } {
         target.sched_enqueue();
@@ -497,6 +602,14 @@ pub fn possible_switch_to(target: &mut tcb_t) {
 
 #[no_mangle]
 /// Schedule current thread if time slice is expired.
+/// # Examples
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRunning);
+/// tcb.tcbTimeSlice = 5;
+/// set_current_thread(tcb);
+/// timerTick();
+/// assert_eq!(tcb.tcbTimeSlice, 4);
+/// ```
 pub fn timerTick() {
     let current = get_currenct_thread();
     // if hart_id() == 0 {
@@ -523,6 +636,15 @@ pub fn timerTick() {
 
 #[no_mangle]
 /// Activate the current thread.
+/// # Examples
+/// ```
+/// let tcb = &mut new_mock_tcb_with_state(ThreadState::ThreadStateRestart);
+/// tcb.tcbArch.set_register(ArchReg::FaultIP, 10);
+/// set_current_thread(tcb);
+/// activateThread();
+/// assert_eq!(tcb.get_state(), ThreadState::ThreadStateRunning);
+/// assert_eq!(tcb.tcbArch.get_register(ArchReg::NextIP), 10);
+/// ```
 pub fn activateThread() {
     let thread = get_currenct_thread();
     // debug!("current: {:#x}", thread.get_ptr());

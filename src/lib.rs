@@ -45,8 +45,7 @@ mod tests {
         println,
         sel4_config::{
             seL4_MsgMaxExtraCaps, seL4_MsgMaxLength, seL4_PageBits, tcbBuffer, tcbCTable,
-            tcbCaller, tcbReply, wordBits, wordRadix, CONFIG_NUM_PRIORITIES,
-            CONFIG_TIME_SLICE,
+            tcbCaller, tcbReply, wordBits, wordRadix, CONFIG_NUM_PRIORITIES, CONFIG_TIME_SLICE,
         },
         structures::{exception_t, seL4_IPCBuffer},
         utils::{convert_to_mut_type_ref, convert_to_type_ref},

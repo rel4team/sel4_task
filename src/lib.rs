@@ -41,12 +41,11 @@ mod tests {
     use riscv::register::{stvec, utvec::TrapMode};
     use sel4_common::{
         arch::{shutdown, vm_rights_t, ArchReg, ArchTCB},
-        console::print,
         fault::{lookup_fault_t, seL4_Fault_t},
         println,
         sel4_config::{
             seL4_MsgMaxExtraCaps, seL4_MsgMaxLength, seL4_PageBits, tcbBuffer, tcbCTable,
-            tcbCaller, tcbReply, wordBits, wordRadix, CONFIG_MAX_NUM_NODES, CONFIG_NUM_PRIORITIES,
+            tcbCaller, tcbReply, wordBits, wordRadix, CONFIG_NUM_PRIORITIES,
             CONFIG_TIME_SLICE,
         },
         structures::{exception_t, seL4_IPCBuffer},

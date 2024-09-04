@@ -2,6 +2,8 @@
 name = "sel4_task"
 version = "0.1.0"
 edition = "2021"
+description = "A brief description of your crate"
+repository = "https://github.com/rel4team/sel4_task"
 
 [dependencies]
 sel4_common = { git = "https://github.com/rel4team/sel4_common.git", branch = "mi_dev" }

@@ -6,9 +6,9 @@ description = "A brief description of your crate"
 repository = "https://github.com/rel4team/sel4_task"
 
 [dependencies]
-sel4_common = { git = "https://github.com/rel4team/sel4_common.git", branch = "mi_dev" }
-sel4_cspace = { git = "https://github.com/rel4team/sel4_cspace.git", branch = "mi_dev" }
-sel4_vspace = { git = "https://github.com/rel4team/sel4_vspace.git", branch = "mi_dev" }
+sel4_common = { version = "0.1.0", git = "https://github.com/rel4team/sel4_common.git", branch = "mi_dev" }
+sel4_cspace = { version = "0.1.0", git = "https://github.com/rel4team/sel4_cspace.git", branch = "mi_dev" }
+sel4_vspace = { version = "0.1.0", git = "https://github.com/rel4team/sel4_vspace.git", branch = "mi_dev" }
 log = "0.4.21"
 riscv = { version = "0.6.0", git = "https://github.com/rcore-os/riscv", features = [
     "inline-asm",
